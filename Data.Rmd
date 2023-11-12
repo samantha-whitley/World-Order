@@ -1,0 +1,260 @@
+---
+title: "Code NATO Public Opinion - World Order Assignment 3"
+author: "Samantha Whitley, samantha_whitley"
+institute: "Hertie School" #"`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    df_print: paged
+    highlight: tango
+    number_sections: FALSE
+    theme: journal
+    toc: TRUE
+    toc_depth: 3
+    toc_float: true
+
+---
+
+```{r setup, include=FALSE}
+# figures formatting setup
+library(tidyverse)
+library(rvest)
+library(httr)
+library(knitr)
+library(pdftools)
+library(stringr)
+library(viridis)
+library(forcats)
+library(RColorBrewer)
+library(pals)
+
+```
+
+Data found from Standard Eurobarometer 94-99 PDF's. Found at https://europa.eu/eurobarometer/surveys/ under attachments. Example for 99: Standard Eurobarometer 99 - Spring 2023 - Data annex - en 
+
+```{r}
+#scrape PDF into R
+
+Winter_2021 <- pdf_text("94.pdf")
+Spring_2021 <- pdf_text("95.pdf")
+Winter_2022 <- pdf_text("96.pdf")
+Summer_2022 <- pdf_text("97.pdf")
+Winter_2023 <- pdf_text("98.pdf")
+Spring_2023 <- pdf_text("99.pdf")
+
+```
+
+```{r}
+
+#function to scrape and clean tables
+
+eu_nato_pdfscrape <- function(pdf, column_names) {
+  # Read the text from the PDF
+  pdf_text_data <- pdf_text(pdf)
+  
+  # Extract relevant lines containing data
+  data <- strsplit(pdf_text_data, "\n")[[1]]
+  data <- data[grep("EU27", data):grep("SE", data)]
+  
+  # Split the data into columns
+  data <- str_split_fixed(data, "\\s{2,}", 7)
+  
+  # Create a data frame
+  data <- data.frame(data, stringsAsFactors = FALSE)
+  
+  # Convert columns to numeric (excluding the first column)
+  data <- data %>%
+    select(-c(1, 4, 6)) %>%
+    mutate_at(vars(-1), as.numeric)
+  
+  # Rename columns
+  names(data) <- column_names
+  
+  return(data)
+}
+```
+
+```{r}
+
+#create df for each season and year with function
+
+Winter_2023_df <- eu_nato_pdfscrape(pdf = "98.pdf",
+                                     column_names = c(
+                                       "Country",
+                                       "Trust Winter 2023",
+                                       "Distrust Winter 2023",
+                                       "Don't Know Winter 2023"
+                                     ))
+
+Spring_2021_df <- eu_nato_pdfscrape(pdf = "95.pdf",
+                                     column_names = c(
+                                       "Country",
+                                       "Trust Spring 2021",
+                                       "Distrust Spring 2021",
+                                       "Don't Know Spring 2021"
+                                     ))
+
+Winter_2022_df <- eu_nato_pdfscrape(pdf = "96.pdf",
+                                     column_names = c(
+                                       "Country",
+                                       "Trust Winter 2022",
+                                       "Distrust Winter 2022",
+                                       "Don't Know Winter 2022"
+                                     ))
+Summer_2022_df <- eu_nato_pdfscrape(pdf = "97.pdf",
+                                     column_names = c(
+                                       "Country",
+                                       "Trust Summer 2022",
+                                       "Distrust Summer 2022",
+                                       "Don't Know Summer 2022"
+                                     ))
+
+Spring_2023_df <- eu_nato_pdfscrape(pdf = "99.pdf",
+                                     column_names = c(
+                                       "Country",
+                                       "Trust Winter 2023",
+                                       "Distrust Winter 2023",
+                                       "Don't Know Winter 2023"
+                                     ))
+```
+
+```{r}
+##winter2021 table different so do it manually
+
+Winter_2021 <- pdf_text("94.pdf")
+Winter_2021 <- strsplit(Winter_2021, "\n")
+
+Winter_2021 <- Winter_2021[[1]]
+
+Winter_2021 <- Winter_2021[grep("EU27", Winter_2021):
+                    grep("SE", Winter_2021)]
+
+Winter_2021 <- str_split_fixed(Winter_2021, " {2,}", 5)
+
+Winter_2021_df <- data.frame(Winter_2021)
+
+Winter_2021_df <- Winter_2021_df %>%
+    select(-c(1)) %>%
+    mutate_at(vars(-1), as.numeric) 
+  
+names(Winter_2021_df) <- c( 
+                  "Country", 
+                  "Trust Winter 2021", 
+                  "Distrust Winter 2021",
+                  "Don't Know Winter 2021")
+
+
+
+```
+
+```{r}
+
+#combine all tables into one df
+all_df <- Winter_2023_df %>%
+  left_join(Winter_2021_df, by = "Country") %>%
+  left_join(Spring_2021_df, by = "Country") %>%
+  left_join(Winter_2022_df, by = "Country") %>%
+  left_join(Summer_2022_df, by = "Country") %>%
+  left_join(Spring_2023_df, by = "Country")
+
+#distrust data
+distrust_df <- all_df %>%
+  select(1, 3, 6, 9, 12, 15) %>%
+  select(-2, everything(), 2)
+
+#trust data
+trust_df <- all_df %>%
+  select(1, 2, 5, 8, 11, 14) %>%
+  select(-2, everything(), 2)
+
+#turn data into long for better ggplot analysis
+trust_df_long <- pivot_longer(trust_df, cols = -Country, names_to = "Time", values_to = "Value")
+
+distrust_df_long <- pivot_longer(distrust_df, cols = -Country, names_to = "Time", values_to = "Value")
+
+```
+
+```{r}
+#add regions
+regions <- read.csv("region.csv")
+trust_df_long <- merge(trust_df_long, regions, by = "Country")
+distrust_df_long <- merge(distrust_df_long, regions, by = "Country")
+
+#clean long data
+trust_df_long <- trust_df_long %>%
+  mutate_all(~str_replace_all(., "Trust", "")) %>%
+  mutate_all(~str_replace_all(., ".x", ""))
+
+distrust_df_long <- distrust_df_long %>%
+  mutate_all(~str_replace_all(., "Trust", "")) %>%
+  mutate_all(~str_replace_all(., ".x", ""))
+
+trust_df_long$Time <- trimws(trust_df_long$Time)
+distrust_df_long$Time <- trimws(distrust_df_long$Time)
+
+#recode season
+trust_df_long$Time <- recode(trust_df_long$Time, 
+                              "Winter 2021" = "W21", 
+                              "Spring 2021" = "S21", 
+                              "Winter 2022" = "W22", 
+                              "Summer 2022" = "S22", 
+                              "Winter 2023" = "W23")
+distrust_df_long$Time <- recode(distrust_df_long$Time, 
+                              "Winter 2021" = "W21", 
+                              "Spring 2021" = "S21", 
+                              "Winter 2022" = "W22", 
+                              "Summer 2022" = "S22", 
+                              "Winter 2023" = "W23")
+#recode Germany to West
+trust_df_long <- trust_df_long %>%
+  mutate(Region = ifelse(Country == "DE", "Western", Region))
+
+distrust_df_long <- distrust_df_long %>%
+  mutate(Region = ifelse(Country == "DE", "Western", Region))
+
+#make seasons ordinal 
+trust_df_long$Time <- factor(trust_df_long$Time, levels = unique(trust_df_long$Time)[order(as.numeric(gsub("[^0-9]", "", unique(trust_df_long$Time))))])
+
+distrust_df_long$Time <- factor(distrust_df_long$Time, levels = unique(distrust_df_long$Time)[order(as.numeric(gsub("[^0-9]", "", unique(distrust_df_long$Time))))])
+
+```
+
+
+```{r}
+
+#create graph
+trust_palette <- c('black', 'forestgreen', 'red2', 'orange', 'cornflowerblue', 
+                   'magenta', 'purple', 'indianred1', 'tan4', 'darkblue', 
+                   'mediumorchid1', 'firebrick4', 'yellowgreen', 'blue', 'tan3',
+                   "tan1", 'darkgray', 'wheat4', '#DDAD4B', 'chartreuse', 
+                   'seagreen1', 'mediumvioletred', 'darksalmon',
+                   "darkolivegreen1", "tomato3", "#7CE3D8", "gray", "pink")
+                   
+country_names <- c("BE" = "Belgium", "BG" = "Bulgaria", "CZ" = "Czech Republic", 
+                   "DK" = "Denmark", "DE" = "Germany", "EE" = "Estonia", 
+                   "IE" = "Ireland", "EL" = "Greece", "ES" = "Spain", 
+                   "FR" = "France", "HR" = "Croatia", "IT" = "Italy", 
+                   "CY" = "Cyprus", "LV" = "Latvia", "LT" = "Lithuania", 
+                   "LU" = "Luxembourg", "HU" = "Hungary", "MT" = "Malta", 
+                   "NL" = "Netherlands", "AT" = "Austria", "PL" = "Poland", 
+                   "PT" = "Portugal", "RO" = "Romania", "SI" = "Slovenia", 
+                   "SK" = "Slovakia", "FI" = "Finland", "SE" = "Sweden")
+
+
+trust_graph <- trust_df_long %>%
+  ggplot(aes(x = Time, y = as.numeric(Value), color = Country, group = Country)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "NATO Public Approval Ratings per EU Region \n before and after the 2021 Russian Invasion ",
+       x = "Season and Year",
+       y = "Percentage of Public Opinion",
+       color = "Country") +
+  scale_y_continuous(breaks = seq(0, 100, 10), limits = c(10, 90)) +
+  scale_color_manual(values = trust_palette, breaks = names(country_names), labels = country_names) +
+  theme_minimal() +
+  facet_wrap(~Region, scales = "free_y") 
+
+trust_graph
+
+ggsave("trust_graph5.pdf", plot = trust_graph, width = 10, height = 6)
+```
+
